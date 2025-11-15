@@ -1,13 +1,29 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
+
 import {ERC4626} from "@solady-tokens/ERC4626.sol";
+import {ERC20} from "@solady-tokens/ERC20.sol";
 
 contract BtcGammaStrategy is ERC4626 {
-    constructor() public {}
+    address public immutable UBTC;
 
-    function _convertToShares(
-        uint256 assets
-    ) internal pure override returns (uint256) {
-        return assets;
+    constructor(address _ubtc) {
+        UBTC = _ubtc;
+    }
+
+    function name() public pure override returns (string memory) {
+        return "BtcGamma Strategy";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "btcGAMMA";
+    }
+
+    function asset() public view override returns (address) {
+        return UBTC;
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return ERC20(UBTC).balanceOf(address(this));
     }
 }
