@@ -20,10 +20,6 @@ contract BtcGammaStrategy is ERC4626 {
     uint256 public minHealthFactor = 1.05e18;
     uint256 public loopCount = 3;
 
-    // Tracking
-    uint256 public totalUBTCSupplied;
-    uint256 public totalUSDXLBorrowed;
-
     constructor(address _ubtc, address _usdxl, address _hypurrfiPool, address _swapRouter) {
         UBTC = _ubtc;
         USDXL = _usdxl;
@@ -75,13 +71,13 @@ contract BtcGammaStrategy is ERC4626 {
 
     function _executeLeverageLoop(uint256 initialAmount) internal {
         uint256 supplyAmount = initialAmount;
+        uint256 loops = loopCount;
 
         UBTC.safeApprove(HYPURRFI_POOL, type(uint256).max);
         USDXL.safeApprove(SWAP_ROUTER, type(uint256).max);
 
-        for (uint256 i = 0; i < loopCount; i++) {
+        for (uint256 i; i < loops;) {
             IHypurrFiPool(HYPURRFI_POOL).supply(UBTC, supplyAmount, address(this), 0);
-            totalUBTCSupplied += supplyAmount;
 
             (,, uint256 availableBorrowsBase,, uint256 currentLTV, uint256 healthFactor) =
                 IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
@@ -93,32 +89,31 @@ contract BtcGammaStrategy is ERC4626 {
             }
 
             IHypurrFiPool(HYPURRFI_POOL).borrow(USDXL, borrowAmount, 2, 0, address(this));
-            totalUSDXLBorrowed += borrowAmount;
+
+            // TODO: swap USDXL to USDT0 (in Balancer) for better uBTC price
 
             supplyAmount = _swapStablesToUBTC(borrowAmount);
 
-            if (supplyAmount == 0) {
-                break;
+            unchecked {
+                ++i;
             }
         }
 
         // Supply remaining uBTC from last swap
         if (supplyAmount > 0) {
             IHypurrFiPool(HYPURRFI_POOL).supply(UBTC, supplyAmount, address(this), 0);
-            totalUBTCSupplied += supplyAmount;
         }
 
-        // Reset approvals to 0
         UBTC.safeApprove(HYPURRFI_POOL, 0);
         USDXL.safeApprove(SWAP_ROUTER, 0);
     }
 
-    function _swapStablesToUBTC(uint256 stableAmount) internal virtual returns (uint256) {
+    function _swapStablesToUBTC(uint256 stableAmount) internal returns (uint256) {
         if (stableAmount == 0) return 0;
 
         uint256 ubtcBefore = ERC20(UBTC).balanceOf(address(this));
 
-        uint256 expectedOut = (stableAmount * 1e8) / (95000 * 1e8);
+        uint256 expectedOut = stableAmount / 95000;
 
         // 2% slippage tolerance
         uint256 minOut = (expectedOut * 98) / 100;

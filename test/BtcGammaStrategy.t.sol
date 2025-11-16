@@ -74,7 +74,7 @@ contract BtcGammaStrategyTest is Test {
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        assertGt(strategy.totalUSDXLBorrowed(), 0, "Should have borrowed USDXL");
+        assertGt(pool.borrowed(address(strategy)), 0, "Should have borrowed USDXL");
         assertGt(pool.supplied(address(strategy)), 0, "Should have supplied to pool");
         assertGt(strategy.totalAssets(), 0, "Should have net asset value");
     }
@@ -153,7 +153,7 @@ contract BtcGammaStrategyTest is Test {
         vm.stopPrank();
 
         assertGt(pool.supplied(address(strategy)), 0, "Should have supplied collateral to pool");
-        assertGt(strategy.totalUBTCSupplied(), 0, "totalUBTCSupplied should be updated");
+        assertGt(pool.supplied(address(strategy)), 0, "totalUBTCSupplied should be updated");
 
         assertEq(ubtc.balanceOf(address(strategy)), 0, "Strategy should not hold idle uBTC");
     }
@@ -166,7 +166,7 @@ contract BtcGammaStrategyTest is Test {
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        assertGt(strategy.totalUSDXLBorrowed(), 0, "Should have borrowed stables");
+        assertGt(pool.borrowed(address(strategy)), 0, "Should have borrowed stables");
         assertGt(pool.borrowed(address(strategy)), 0, "Pool should track borrowed amount");
     }
 
@@ -178,7 +178,7 @@ contract BtcGammaStrategyTest is Test {
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        assertGt(strategy.totalUBTCSupplied(), depositAmount, "Should have leveraged position");
+        assertGt(pool.supplied(address(strategy)), depositAmount, "Should have leveraged position");
 
         assertEq(ubtc.balanceOf(address(strategy)), 0, "All uBTC should be supplied");
     }
@@ -247,13 +247,13 @@ contract BtcGammaStrategyTest is Test {
         ubtc.approve(address(strategy), firstDeposit);
         strategy.deposit(firstDeposit, alice);
 
-        uint256 suppliedAfterFirst = strategy.totalUBTCSupplied();
+        uint256 suppliedAfterFirst = pool.supplied(address(strategy));
 
         ubtc.approve(address(strategy), secondDeposit);
         strategy.deposit(secondDeposit, alice);
         vm.stopPrank();
 
-        uint256 suppliedAfterSecond = strategy.totalUBTCSupplied();
+        uint256 suppliedAfterSecond = pool.supplied(address(strategy));
 
         assertGt(suppliedAfterSecond - suppliedAfterFirst, secondDeposit, "Should leverage second deposit");
     }
