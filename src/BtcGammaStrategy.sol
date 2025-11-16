@@ -62,6 +62,16 @@ contract BtcGammaStrategy is ERC4626 {
         return totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
     }
 
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        // Can withdraw up to the net asset value (unwinding is possible)
+        uint256 shares = balanceOf(owner);
+        return convertToAssets(shares);
+    }
+
+    function maxRedeem(address owner) public view override returns (uint256) {
+        return balanceOf(owner);
+    }
+
     ////////////////////////////////////////////////////////////////
     ///////// External write
     ////////////////////////////////////////////////////////////////
@@ -102,9 +112,39 @@ contract BtcGammaStrategy is ERC4626 {
     ///////// Internal
     ////////////////////////////////////////////////////////////////
 
-    function _deposit(address by, address to, uint256 assets, uint256 shares) internal override {
-        super._deposit(by, to, assets, shares);
+    function deposit(uint256 assets, address to) public override returns (uint256 shares) {
+        uint256 assetsBefore = totalAssets();
+        uint256 supplyBefore = totalSupply();
+
+        UBTC.safeTransferFrom(msg.sender, address(this), assets);
         _executeLeverageLoop(assets);
+
+        uint256 assetsAfter = totalAssets();
+        uint256 netIncrease = assetsAfter - assetsBefore;
+
+        if (supplyBefore == 0) {
+            shares = netIncrease;
+        } else {
+            shares = (netIncrease * supplyBefore) / assetsBefore;
+        }
+
+        _mint(to, shares);
+        emit Deposit(msg.sender, to, assets, shares);
+    }
+
+    function withdraw(uint256 assets, address to, address owner) public override returns (uint256 shares) {
+        shares = previewWithdraw(assets);
+
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        _unwindLeverage(assets);
+
+        _burn(owner, shares);
+        UBTC.safeTransfer(to, assets);
+
+        emit Withdraw(msg.sender, to, owner, assets, shares);
     }
 
     function _executeLeverageLoop(uint256 initialAmount) internal {
@@ -125,7 +165,7 @@ contract BtcGammaStrategy is ERC4626 {
 
             IHypurrFiPool(HYPURRFI_POOL).borrow(USDXL, borrowAmount, 2, 0, address(this));
 
-            // TODO: swap USDXL to USDT0 (in Balancer) for better uBTC price
+            // TODO: swap USDXL to USDT0 (in Balancer) for better uBTC rate
 
             supplyAmount = _swap(USDXL, UBTC, borrowAmount);
 
@@ -162,6 +202,34 @@ contract BtcGammaStrategy is ERC4626 {
         require(received > 0, "Swap failed");
 
         return received;
+    }
+
+    function _unwindLeverage(uint256 assetsNeeded) internal {
+        (uint256 totalCollateralBase, uint256 totalDebtBase,,,,) =
+            IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
+
+        uint256 idleUBTC = ERC20(UBTC).balanceOf(address(this));
+        if (idleUBTC >= assetsNeeded) {
+            return; // Enough idle balance
+        }
+
+        uint256 stillNeeded = assetsNeeded - idleUBTC;
+
+        // Calculate withdrawal ratio based on net assets
+        uint256 netAssets = totalCollateralBase - totalDebtBase;
+        uint256 withdrawRatio = (stillNeeded * 1e18) / netAssets;
+
+        uint256 debtToRepay = (totalDebtBase * withdrawRatio) / 1e18;
+
+        uint256 collateralToWithdraw = stillNeeded + debtToRepay;
+
+        // Withdraw the collateral
+        IHypurrFiPool(HYPURRFI_POOL).withdraw(UBTC, collateralToWithdraw, address(this));
+
+        uint256 amountReceived = _swap(UBTC, USDXL, debtToRepay);
+
+        // Repay debt
+        IHypurrFiPool(HYPURRFI_POOL).repay(USDXL, amountReceived, 2, address(this));
     }
 }
 
