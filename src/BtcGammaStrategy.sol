@@ -11,6 +11,7 @@ contract BtcGammaStrategy is ERC4626 {
 
     address public immutable UBTC;
     address public immutable USDXL;
+    address public immutable WHYPE;
     address public immutable HYPURRFI_POOL;
     address public immutable SWAP_ROUTER;
 
@@ -23,9 +24,10 @@ contract BtcGammaStrategy is ERC4626 {
     event Rebalanced(uint256 oldHF, uint256 newHF, uint256 debtRepaid);
     event UnderwaterPosition(uint256 collateral, uint256 debt);
 
-    constructor(address _ubtc, address _usdxl, address _hypurrfiPool, address _swapRouter) {
+    constructor(address _ubtc, address _usdxl, address _whype, address _hypurrfiPool, address _swapRouter) {
         UBTC = _ubtc;
         USDXL = _usdxl;
+        WHYPE = _whype;
         HYPURRFI_POOL = _hypurrfiPool;
         SWAP_ROUTER = _swapRouter;
     }
@@ -35,6 +37,7 @@ contract BtcGammaStrategy is ERC4626 {
         UBTC.safeApprove(SWAP_ROUTER, type(uint256).max);
         USDXL.safeApprove(SWAP_ROUTER, type(uint256).max);
         USDXL.safeApprove(HYPURRFI_POOL, type(uint256).max);
+        WHYPE.safeApprove(SWAP_ROUTER, type(uint256).max);
     }
 
     ///////////////////////////////////////////////////////////////
@@ -196,17 +199,20 @@ contract BtcGammaStrategy is ERC4626 {
 
         uint256 balanceBefore = ERC20(tokenOut).balanceOf(address(this));
 
-        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: tokenIn,
-            tokenOut: tokenOut,
-            fee: 3000,
-            recipient: address(this),
-            amountIn: amountIn,
-            amountOutMinimum: 1,
-            sqrtPriceLimitX96: 0
+        // USDXL -> WHYPE -> UBTC or UBTC -> WHYPE -> USDXL
+        bytes memory path = abi.encodePacked(
+            tokenIn,
+            uint24(3000),
+            WHYPE, // WHYPE
+            uint24(3000),
+            tokenOut
+        );
+
+        ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
+            path: path, recipient: address(this), amountIn: amountIn, amountOutMinimum: 1
         });
 
-        ISwapRouter(SWAP_ROUTER).exactInputSingle(params);
+        ISwapRouter(SWAP_ROUTER).exactInput(params);
 
         uint256 balanceAfter = ERC20(tokenOut).balanceOf(address(this));
         uint256 received = balanceAfter - balanceBefore;
