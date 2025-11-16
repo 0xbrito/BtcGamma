@@ -93,6 +93,8 @@ sequenceDiagram
 - **uBTC Token**: `0x20000000000000000000000000000000000000c6`
 - **BtcGammaStrategy Vault**: TBD
 - **DEX Router**: `0x20000000000000000000000000000000000000c7`
+- **Vault contract** `https://hyperevmscan.io/address/0xa1743d38b1f576b11f999ab7f413049a555fe51c`
+- **Depodsit Txn** `https://hyperevmscan.io/tx/0x7de8578fe339bec568d991f8ba7aeb3acc18cf38b3339cc57e8c21e97f51cd4c`
 
 ## 🏗️ Project Structure
 
@@ -452,7 +454,7 @@ UNLICENSED - For demonstration purposes
 
 ## 🙏 Acknowledgments
 
-Built with:
+Built with: 
 
 - [@getalby/lightning-tools](https://github.com/getAlby/js-lightning-tools)
 - [ethers.js](https://ethers.org/)
