@@ -14,10 +14,7 @@ interface ISwapRouter {
     }
 
     /// @notice Swaps `amountIn` of one token for as much as possible of another token
-    function exactInputSingle(ExactInputSingleParams calldata params)
-        external
-        payable
-        returns (uint256 amountOut);
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
 
     struct ExactInputParams {
         bytes path;
@@ -25,7 +22,4 @@ interface ISwapRouter {
         uint256 amountIn;
         uint256 amountOutMinimum;
     }
-
-    /// @notice Swaps `amountIn` of one token for as much as possible of another along the specified path
-    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
 }

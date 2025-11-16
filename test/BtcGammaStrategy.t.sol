@@ -33,6 +33,7 @@ contract BtcGammaStrategyTest is Test {
         pool.setHyToken(address(ubtc), address(hyUBTC));
 
         strategy = new BtcGammaStrategy(address(ubtc), address(usdxl), address(pool), address(dex));
+        strategy.maxApproveIntegrations();
 
         ubtc.mint(alice, INITIAL_BALANCE);
         ubtc.mint(bob, INITIAL_BALANCE);

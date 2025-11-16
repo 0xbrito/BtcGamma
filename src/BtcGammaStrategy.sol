@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {ERC4626, ERC20} from "@solady-tokens/ERC4626.sol";
 import {SafeTransferLib} from "@solady-utils/SafeTransferLib.sol";
-import {IHypurrFiPool} from "./interfaces/IHypurrFiPool.sol";
+import {IHypurrFiPool, ReserveData} from "./interfaces/IHypurrFiPool.sol";
 import {ISwapRouter} from "./interfaces/ISwapRouter.sol";
 
 contract BtcGammaStrategy is ERC4626 {
@@ -20,11 +20,21 @@ contract BtcGammaStrategy is ERC4626 {
     uint256 public minHealthFactor = 1.05e18;
     uint256 public loopCount = 3;
 
+    event Rebalanced(uint256 oldHF, uint256 newHF, uint256 debtRepaid);
+    event UnderwaterPosition(uint256 collateral, uint256 debt);
+
     constructor(address _ubtc, address _usdxl, address _hypurrfiPool, address _swapRouter) {
         UBTC = _ubtc;
         USDXL = _usdxl;
         HYPURRFI_POOL = _hypurrfiPool;
         SWAP_ROUTER = _swapRouter;
+    }
+
+    function maxApproveIntegrations() external {
+        UBTC.safeApprove(HYPURRFI_POOL, type(uint256).max);
+        UBTC.safeApprove(SWAP_ROUTER, type(uint256).max);
+        USDXL.safeApprove(SWAP_ROUTER, type(uint256).max);
+        USDXL.safeApprove(HYPURRFI_POOL, type(uint256).max);
     }
 
     ///////////////////////////////////////////////////////////////
@@ -57,7 +67,35 @@ contract BtcGammaStrategy is ERC4626 {
     ////////////////////////////////////////////////////////////////
 
     function rebalance() external {
-        // TODO: check health factor and rebalance if needed
+        (uint256 totalCollateralBase, uint256 totalDebtBase,,, uint256 currentLTV, uint256 healthFactor) =
+            IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
+
+        if (totalCollateralBase <= totalDebtBase) {
+            emit UnderwaterPosition(totalCollateralBase, totalDebtBase);
+            return;
+        }
+
+        uint256 safeHF = (minHealthFactor * 115) / 100;
+        if (healthFactor >= safeHF && currentLTV <= (maxLTV * 95) / 100) {
+            return;
+        }
+
+        uint256 initialHF = healthFactor;
+
+        ReserveData memory reserveData = IHypurrFiPool(HYPURRFI_POOL).getReserveData(UBTC);
+        uint256 hyTokenBalance = ERC20(reserveData.aTokenAddress).balanceOf(address(this));
+
+        // Withdraw 10% of hyToken balance
+        uint256 withdrawAmount = hyTokenBalance / 10;
+
+        IHypurrFiPool(HYPURRFI_POOL).withdraw(UBTC, withdrawAmount, address(this));
+
+        uint256 amountReceived = _swap(UBTC, USDXL, withdrawAmount);
+
+        IHypurrFiPool(HYPURRFI_POOL).repay(USDXL, amountReceived, 2, address(this));
+
+        (,,,,, uint256 finalHF) = IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
+        emit Rebalanced(initialHF, finalHF, amountReceived);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -72,9 +110,6 @@ contract BtcGammaStrategy is ERC4626 {
     function _executeLeverageLoop(uint256 initialAmount) internal {
         uint256 supplyAmount = initialAmount;
         uint256 loops = loopCount;
-
-        UBTC.safeApprove(HYPURRFI_POOL, type(uint256).max);
-        USDXL.safeApprove(SWAP_ROUTER, type(uint256).max);
 
         for (uint256 i; i < loops;) {
             IHypurrFiPool(HYPURRFI_POOL).supply(UBTC, supplyAmount, address(this), 0);
@@ -92,7 +127,7 @@ contract BtcGammaStrategy is ERC4626 {
 
             // TODO: swap USDXL to USDT0 (in Balancer) for better uBTC price
 
-            supplyAmount = _swapStablesToUBTC(borrowAmount);
+            supplyAmount = _swap(USDXL, UBTC, borrowAmount);
 
             unchecked {
                 ++i;
@@ -103,37 +138,28 @@ contract BtcGammaStrategy is ERC4626 {
         if (supplyAmount > 0) {
             IHypurrFiPool(HYPURRFI_POOL).supply(UBTC, supplyAmount, address(this), 0);
         }
-
-        UBTC.safeApprove(HYPURRFI_POOL, 0);
-        USDXL.safeApprove(SWAP_ROUTER, 0);
     }
 
-    function _swapStablesToUBTC(uint256 stableAmount) internal returns (uint256) {
-        if (stableAmount == 0) return 0;
+    function _swap(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256) {
+        if (amountIn == 0) return 0;
 
-        uint256 ubtcBefore = ERC20(UBTC).balanceOf(address(this));
-
-        uint256 expectedOut = stableAmount / 95000;
-
-        // 2% slippage tolerance
-        uint256 minOut = (expectedOut * 98) / 100;
+        uint256 balanceBefore = ERC20(tokenOut).balanceOf(address(this));
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: USDXL,
-            tokenOut: UBTC,
-            fee: 3000, // 0.3%
+            tokenIn: tokenIn,
+            tokenOut: tokenOut,
+            fee: 3000,
             recipient: address(this),
-            amountIn: stableAmount,
-            amountOutMinimum: minOut,
+            amountIn: amountIn,
+            amountOutMinimum: 1,
             sqrtPriceLimitX96: 0
         });
 
         ISwapRouter(SWAP_ROUTER).exactInputSingle(params);
 
-        uint256 ubtcAfter = ERC20(UBTC).balanceOf(address(this));
-        uint256 received = ubtcAfter - ubtcBefore;
+        uint256 balanceAfter = ERC20(tokenOut).balanceOf(address(this));
+        uint256 received = balanceAfter - balanceBefore;
         require(received > 0, "Swap failed");
-        require(received >= minOut, "Swap slippage too high");
 
         return received;
     }

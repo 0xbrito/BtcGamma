@@ -39,7 +39,9 @@ contract MockHypurrFiPool is IHypurrFiPool {
     function withdraw(address asset, uint256 amount, address to) external override returns (uint256) {
         uint256 withdrawAmount = amount > supplied[msg.sender] ? supplied[msg.sender] : amount;
         supplied[msg.sender] -= withdrawAmount;
-        ERC20(asset).transfer(to, withdrawAmount);
+
+        // Mint underlying asset to recipient
+        MockERC20(asset).mint(to, withdrawAmount);
         return withdrawAmount;
     }
 
@@ -57,8 +59,13 @@ contract MockHypurrFiPool is IHypurrFiPool {
         )
     {
         totalCollateralBase = supplied[user];
-        totalDebtBase = borrowed[user];
-        availableBorrowsBase = totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
+        totalDebtBase = borrowed[user] * 1e12; // Convert from 6 decimals to 18
+
+        uint256 maxBorrowCapacity = (totalCollateralBase * 7500) / 10000;
+        availableBorrowsBase = maxBorrowCapacity > totalDebtBase ? maxBorrowCapacity - totalDebtBase : 0;
+
+        availableBorrowsBase = availableBorrowsBase / 1e12;
+
         currentLiquidationThreshold = 8000; // 80%
 
         ltv = totalCollateralBase > 0 ? (totalDebtBase * 10000) / totalCollateralBase : 0;
@@ -78,5 +85,12 @@ contract MockHypurrFiPool is IHypurrFiPool {
 
     function setUserUseReserveAsCollateral(address, bool useAsCollateral) external override {
         collateralEnabled[msg.sender] = useAsCollateral;
+    }
+
+    // (Test helper) simulate price shock by reducing collateral value
+    function simulatePriceShock(address user, uint256 percentDrop) external {
+        require(percentDrop <= 100, "Invalid percent");
+        uint256 reduction = (supplied[user] * percentDrop) / 100;
+        supplied[user] -= reduction;
     }
 }
