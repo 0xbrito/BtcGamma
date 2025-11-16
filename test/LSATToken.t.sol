@@ -44,7 +44,7 @@ contract LSATTokenTest is Test {
         assertTrue(lsat.processedPayments(paymentHash));
     }
 
-    function testFail_MintTwice() public {
+    function testRefert_If_MintTwice() public {
         uint256 amount = 21000 * 1e18;
         bytes32 paymentHash = keccak256("payment1");
 
@@ -54,7 +54,7 @@ contract LSATTokenTest is Test {
         vm.stopPrank();
     }
 
-    function testFail_MintUnauthorized() public {
+    function testRefert_If_MintUnauthorized() public {
         uint256 amount = 21000 * 1e18;
         bytes32 paymentHash = keccak256("payment1");
 
@@ -62,7 +62,7 @@ contract LSATTokenTest is Test {
         lsat.mint(user, amount, paymentHash); // Should fail
     }
 
-    function test_Burn() public {
+    function testRefert_If_Burn() public {
         uint256 amount = 21000 * 1e18;
         bytes32 paymentHash = keccak256("payment1");
         string memory invoice = "lnbc210000n1...";
