@@ -24,8 +24,8 @@ contract BtcGammaStrategyTest is Test {
     event Transfer(address indexed from, address indexed to, uint256 value);
 
     function setUp() public {
-        ubtc = new MockERC20();
-        usdxl = new MockERC20();
+        ubtc = new MockERC20("Unit Bitcoin", "UBTC", 18);
+        usdxl = new MockERC20("USDXL Stablecoin", "USDXL", 6);
         pool = new MockHypurrFiPool();
         dex = new MockDEX();
         hyUBTC = new MockHyToken();
@@ -133,7 +133,7 @@ contract BtcGammaStrategyTest is Test {
     }
 
     function testFuzzDeposit(uint256 amount) public {
-        amount = bound(amount, 1, INITIAL_BALANCE);
+        amount = bound(amount, 1 ether, INITIAL_BALANCE);
 
         vm.startPrank(alice);
         ubtc.approve(address(strategy), amount);

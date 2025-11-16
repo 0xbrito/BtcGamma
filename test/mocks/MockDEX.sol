@@ -16,14 +16,14 @@ contract MockDEX is ISwapRouter {
     {
         // Transfer input tokens from caller
         ERC20(params.tokenIn).transferFrom(msg.sender, address(this), params.amountIn);
-        
-        // For testing: 1:1 swap (in production this would use AMM pricing)
-        amountOut = params.amountIn;
+
+        amountOut = (params.amountIn * 1e18) / (95000 * 1e18);
+
+        require(amountOut > 0, "Amount too small");
         require(amountOut >= params.amountOutMinimum, "Insufficient output amount");
-        
-        // Mint output tokens to recipient (only works with MockERC20)
+
         MockERC20(params.tokenOut).mint(params.recipient, amountOut);
-        
+
         return amountOut;
     }
 
