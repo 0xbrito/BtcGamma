@@ -1,2 +1,3 @@
 @solady-tokens/=lib/solady/src/tokens/
 @solady-utils/=lib/solady/src/utils/
+@solady-auth/=lib/solady/src/auth/

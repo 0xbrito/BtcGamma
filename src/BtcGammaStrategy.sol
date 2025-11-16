@@ -63,13 +63,24 @@ contract BtcGammaStrategy is ERC4626 {
     }
 
     function maxWithdraw(address owner) public view override returns (uint256) {
-        // Can withdraw up to the net asset value (unwinding is possible)
-        uint256 shares = balanceOf(owner);
-        return convertToAssets(shares);
+        uint256 userAssets = convertToAssets(balanceOf(owner));
+
+        (uint256 totalCollateralBase, uint256 totalDebtBase,,,,) =
+            IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
+
+        // Max we can withdraw from leveraged position (must maintain health factor)
+        uint256 maxUnwind = totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
+
+        return userAssets < maxUnwind ? userAssets : maxUnwind;
     }
 
     function maxRedeem(address owner) public view override returns (uint256) {
-        return balanceOf(owner);
+        uint256 shares = balanceOf(owner);
+        uint256 maxWithdrawable = maxWithdraw(owner);
+
+        uint256 maxRedeemableShares = convertToShares(maxWithdrawable);
+
+        return shares < maxRedeemableShares ? shares : maxRedeemableShares;
     }
 
     ////////////////////////////////////////////////////////////////
