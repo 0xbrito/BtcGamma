@@ -1,4 +1,19 @@
-# ⚡ BTC Gamma - Lightning to Leveraged BTC Yield
+ # ⚡ BTC Gamma - Lightning to Leveraged BTC Yield
+
+Success Screen Shots with Txn Links
+
+<img width="2766" height="1342" alt="image" src="https://github.com/user-attachments/assets/8837f09b-0fc2-4b59-b8c6-94f656adf9d1" />
+<img width="2766" height="1248" alt="image" src="https://github.com/user-attachments/assets/295323a4-d2d9-428f-b536-c1616c123ba7" />
+<img width="2766" height="1248" alt="image" src="https://github.com/user-attachments/assets/84b48da5-27ce-4ffe-b139-380c6ed7496a" />
+<img width="760" height="1194" alt="image" src="https://github.com/user-attachments/assets/a68ff0f6-aa4d-4346-939b-ea118686a875" />
+
+
+
+
+- **Vault contract** [`Vault Contract`](https://hyperevmscan.io/address/0xa1743d38b1f576b11f999ab7f413049a555fe51c)
+- **Deposit Txn** [`Deposit Txn`](https://hyperevmscan.io/tx/0x7de8578fe339bec568d991f8ba7aeb3acc18cf38b3339cc57e8c21e97f51cd4c)
+
+
 
 A complete system for depositing Lightning Network sats into a leveraged Bitcoin yield strategy on HyperEVM.
 
@@ -17,32 +32,7 @@ BTC Gamma allows users to:
 - 🔐 **Secure Bridging** - Cryptographic proof of Lightning payment
 - 🔄 **Automatic Swaps** - LSAT → uBTC via DEX
 - 📈 **Leveraged Strategy** - Up to 3x leverage on BTC
-- 💎 **ERC4626 Vault** - Standard tokenized vault shares
-- 📊 **Real-time Tracking** - Monitor deposits and yields
-
-## 🔄 Architecture Flow
-
-```mermaid
-sequenceDiagram
-    participant User as 👤 User
-    participant WebLN as ⚡ WebLN Wallet
-    participant Client as 🌐 Web Client
-    participant Backend as 🔧 Backend API
-    participant LN as ⚡ Lightning Network
-    participant HyperEVM as 🔗 HyperEVM
-    participant LSAT as 🪙 LSAT Token<br/>(0x2000...00c5)
-    participant DEX as 🔄 DEX
-    participant uBTC as ₿ uBTC<br/>(0x2000...00c6)
-    participant Vault as 🏦 BtcGammaStrategy
-
-    Note over User,Vault: Step 1: Lightning Payment
-    User->>Client: Enter amount & click deposit
-    Client->>Backend: POST /api/create-invoice
-    Backend->>Backend: Generate HyperEVM address<br/>from Lightning identifier
-    Backend->>LN: Create invoice (via NWC/LND)
-    LN-->>Backend: Invoice details
-    Backend->>Backend: Store deposit record<br/>(payment_hash → hyperevm_address)
-    Backend-->>Client: Return invoice
+   Backend-->>Client: Return invoice
     Client->>WebLN: Request payment
     WebLN->>LN: Pay invoice
     LN-->>WebLN: Payment sent
