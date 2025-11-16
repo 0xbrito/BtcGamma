@@ -3,62 +3,18 @@ pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {BtcGammaStrategy} from "../src/BtcGammaStrategy.sol";
-import {ERC20} from "@solady-tokens/ERC20.sol";
-
-contract MockERC20 is ERC20 {
-    function name() public pure override returns (string memory) {
-        return "Mock Token";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "MOCK";
-    }
-
-    function mint(address to, uint256 amount) public {
-        _mint(to, amount);
-    }
-}
-
-contract MockPool {
-    mapping(address => uint256) public supplied;
-    mapping(address => uint256) public borrowed;
-
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16) external {
-        ERC20(asset).transferFrom(msg.sender, address(this), amount);
-        supplied[onBehalfOf] += amount;
-    }
-
-    function borrow(address asset, uint256 amount, uint256, uint16, address onBehalfOf) external {
-        borrowed[onBehalfOf] += amount;
-        MockERC20(asset).mint(msg.sender, amount);
-    }
-
-    function getUserAccountData(address user)
-        external
-        view
-        returns (
-            uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            uint256 availableBorrowsBase,
-            uint256 currentLiquidationThreshold,
-            uint256 ltv,
-            uint256 healthFactor
-        )
-    {
-        totalCollateralBase = supplied[user];
-        totalDebtBase = borrowed[user];
-        availableBorrowsBase = totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
-        currentLiquidationThreshold = 80e16;
-        ltv = 75e16;
-        healthFactor = totalDebtBase > 0 ? (totalCollateralBase * 1e18) / totalDebtBase : type(uint256).max;
-    }
-}
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockHypurrFiPool} from "./mocks/MockHypurrFiPool.sol";
+import {MockDEX} from "./mocks/MockDEX.sol";
+import {MockHyToken} from "./mocks/MockHyToken.sol";
 
 contract BtcGammaStrategyTest is Test {
     BtcGammaStrategy public strategy;
     MockERC20 public ubtc;
     MockERC20 public usdxl;
-    MockPool public pool;
+    MockHypurrFiPool public pool;
+    MockDEX public dex;
+    MockHyToken public hyUBTC;
 
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
@@ -70,11 +26,14 @@ contract BtcGammaStrategyTest is Test {
     function setUp() public {
         ubtc = new MockERC20();
         usdxl = new MockERC20();
-        pool = new MockPool();
+        pool = new MockHypurrFiPool();
+        dex = new MockDEX();
+        hyUBTC = new MockHyToken();
 
-        strategy = new BtcGammaStrategy(address(ubtc), address(usdxl), address(pool));
+        pool.setHyToken(address(ubtc), address(hyUBTC));
 
-        // Mint tokens to test users
+        strategy = new BtcGammaStrategy(address(ubtc), address(usdxl), address(pool), address(dex));
+
         ubtc.mint(alice, INITIAL_BALANCE);
         ubtc.mint(bob, INITIAL_BALANCE);
     }
@@ -119,8 +78,6 @@ contract BtcGammaStrategyTest is Test {
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        // Verify leverage loop was called by checking totalAssets
-        // After deposit, assets should be in the strategy
         assertGt(strategy.totalAssets(), 0, "Should have assets after deposit");
     }
 
@@ -187,5 +144,131 @@ contract BtcGammaStrategyTest is Test {
 
         assertGt(shares, 0, "Should mint shares");
         assertEq(strategy.balanceOf(alice), shares, "Share balance should match");
+    }
+
+    function testDepositSuppliesCollateralToPool() public {
+        uint256 depositAmount = 10 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        assertGt(pool.supplied(address(strategy)), 0, "Should have supplied collateral to pool");
+        assertGt(strategy.totalUBTCSupplied(), 0, "totalUBTCSupplied should be updated");
+
+        assertEq(ubtc.balanceOf(address(strategy)), 0, "Strategy should not hold idle uBTC");
+    }
+
+    function testDepositBorrowsStables() public {
+        uint256 depositAmount = 10 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        assertGt(strategy.totalUSDXLBorrowed(), 0, "Should have borrowed stables");
+        assertGt(pool.borrowed(address(strategy)), 0, "Pool should track borrowed amount");
+    }
+
+    function testDepositExecutesMultipleLoops() public {
+        uint256 depositAmount = 10 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        assertGt(strategy.totalUBTCSupplied(), depositAmount, "Should have leveraged position");
+
+        assertEq(ubtc.balanceOf(address(strategy)), 0, "All uBTC should be supplied");
+    }
+
+    function testDepositRespectsTargetLTV() public {
+        uint256 depositAmount = 10 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        uint256 supplied = strategy.totalUBTCSupplied();
+        uint256 borrowed = strategy.totalUSDXLBorrowed();
+
+        if (supplied > 0) {
+            uint256 actualLTV = (borrowed * 1e18) / supplied;
+            uint256 targetLTV = strategy.targetLTV();
+
+            assertApproxEqRel(actualLTV, targetLTV, 0.1e18, "LTV should be close to target");
+        }
+    }
+
+    function testDepositMaintainsSafeHealthFactor() public {
+        uint256 depositAmount = 10 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        (,,,,, uint256 healthFactor) = pool.getUserAccountData(address(strategy));
+        uint256 minHF = strategy.minHealthFactor();
+
+        assertGe(healthFactor, minHF, "Health factor should be above minimum");
+    }
+
+    function testDepositIncreasesTotalAssets() public {
+        uint256 depositAmount = 10 ether;
+
+        uint256 assetsBefore = strategy.totalAssets();
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        uint256 assetsAfter = strategy.totalAssets();
+
+        assertGt(assetsAfter, assetsBefore, "Total assets should increase");
+    }
+
+    function testDepositWithMaxLeverageDoesNotExceedMaxLTV() public {
+        uint256 depositAmount = 10 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), depositAmount);
+        strategy.deposit(depositAmount, alice);
+        vm.stopPrank();
+
+        // Calculate actual LTV
+        uint256 supplied = strategy.totalUBTCSupplied();
+        uint256 borrowed = strategy.totalUSDXLBorrowed();
+
+        if (supplied > 0) {
+            uint256 actualLTV = (borrowed * 1e18) / supplied;
+            uint256 maxLTV = strategy.maxLTV();
+
+            assertLe(actualLTV, maxLTV, "Should not exceed max LTV");
+        }
+    }
+
+    function testConsecutiveDepositsCompoundLeverage() public {
+        uint256 firstDeposit = 10 ether;
+        uint256 secondDeposit = 5 ether;
+
+        vm.startPrank(alice);
+        ubtc.approve(address(strategy), firstDeposit);
+        strategy.deposit(firstDeposit, alice);
+
+        uint256 suppliedAfterFirst = strategy.totalUBTCSupplied();
+
+        ubtc.approve(address(strategy), secondDeposit);
+        strategy.deposit(secondDeposit, alice);
+        vm.stopPrank();
+
+        uint256 suppliedAfterSecond = strategy.totalUBTCSupplied();
+
+        assertGt(suppliedAfterSecond - suppliedAfterFirst, secondDeposit, "Should leverage second deposit");
     }
 }
