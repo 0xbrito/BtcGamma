@@ -3,17 +3,23 @@ pragma solidity ^0.8.13;
 
 import {ERC4626, ERC20} from "@solady-tokens/ERC4626.sol";
 import {SafeTransferLib} from "@solady-utils/SafeTransferLib.sol";
+import {FixedPointMathLib} from "@solady-utils/FixedPointMathLib.sol";
 import {IHypurrFiPool, ReserveData} from "./interfaces/IHypurrFiPool.sol";
 import {ISwapRouter} from "./interfaces/ISwapRouter.sol";
 
 contract BtcGammaStrategy is ERC4626 {
     using SafeTransferLib for address;
+    using FixedPointMathLib for uint256;
 
     address public immutable UBTC;
     address public immutable USDXL;
     address public immutable WHYPE;
     address public immutable HYPURRFI_POOL;
     address public immutable SWAP_ROUTER;
+
+    // Token decimals (cached at deployment)
+    uint8 private immutable UBTC_DECIMALS;
+    uint8 private immutable USDXL_DECIMALS;
 
     // Strategy parameters
     uint256 public targetLTV = 0.6e18; // 60%
@@ -30,6 +36,9 @@ contract BtcGammaStrategy is ERC4626 {
         WHYPE = _whype;
         HYPURRFI_POOL = _hypurrfiPool;
         SWAP_ROUTER = _swapRouter;
+
+        UBTC_DECIMALS = ERC20(_ubtc).decimals();
+        USDXL_DECIMALS = ERC20(_usdxl).decimals();
     }
 
     function maxApproveIntegrations() external {
@@ -37,7 +46,6 @@ contract BtcGammaStrategy is ERC4626 {
         UBTC.safeApprove(SWAP_ROUTER, type(uint256).max);
         USDXL.safeApprove(SWAP_ROUTER, type(uint256).max);
         USDXL.safeApprove(HYPURRFI_POOL, type(uint256).max);
-        WHYPE.safeApprove(SWAP_ROUTER, type(uint256).max);
     }
 
     ///////////////////////////////////////////////////////////////
@@ -171,7 +179,8 @@ contract BtcGammaStrategy is ERC4626 {
             (,, uint256 availableBorrowsBase,, uint256 currentLTV, uint256 healthFactor) =
                 IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
 
-            uint256 borrowAmount = (availableBorrowsBase * targetLTV) / 1e18;
+            uint256 borrowAmount =
+                availableBorrowsBase.mulDiv(10 ** USDXL_DECIMALS * targetLTV, 10 ** UBTC_DECIMALS * 1e18);
 
             if (currentLTV >= maxLTV || borrowAmount == 0 || healthFactor <= minHealthFactor) {
                 break;
@@ -199,17 +208,20 @@ contract BtcGammaStrategy is ERC4626 {
 
         uint256 balanceBefore = ERC20(tokenOut).balanceOf(address(this));
 
-        // USDXL -> WHYPE -> UBTC or UBTC -> WHYPE -> USDXL
-        bytes memory path = abi.encodePacked(
-            tokenIn,
-            uint24(3000),
-            WHYPE, // WHYPE
-            uint24(3000),
-            tokenOut
-        );
+        bytes memory path;
+
+        if (tokenIn == USDXL && tokenOut == UBTC) {
+            // USDXL -> WHYPE -> UBTC (fee: 3000 = 0x000bb8, 500 = 0x0001f4)
+            path = abi.encodePacked(USDXL, uint24(3000), WHYPE, uint24(500), UBTC);
+        } else if (tokenIn == UBTC && tokenOut == USDXL) {
+            // UBTC -> WHYPE -> USDXL (fee: 500 = 0x0001f4, 3000 = 0x000bb8)
+            path = abi.encodePacked(UBTC, uint24(500), WHYPE, uint24(3000), USDXL);
+        } else {
+            revert("Unsupported swap pair");
+        }
 
         ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
-            path: path, recipient: address(this), amountIn: amountIn, amountOutMinimum: 1
+            path: path, recipient: address(this), deadline: block.timestamp, amountIn: amountIn, amountOutMinimum: 0
         });
 
         ISwapRouter(SWAP_ROUTER).exactInput(params);
