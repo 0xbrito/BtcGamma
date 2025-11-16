@@ -17,7 +17,7 @@ contract BtcGammaStrategy is ERC4626 {
     // Strategy parameters
     uint256 public targetLTV = 0.6e18; // 60%
     uint256 public maxLTV = 0.7e18; // 70%
-    uint256 public minHealthFactor = 1.2e18;
+    uint256 public minHealthFactor = 1.05e18;
     uint256 public loopCount = 3;
 
     // Tracking
@@ -76,39 +76,52 @@ contract BtcGammaStrategy is ERC4626 {
     function _executeLeverageLoop(uint256 initialAmount) internal {
         uint256 supplyAmount = initialAmount;
 
+        UBTC.safeApprove(HYPURRFI_POOL, type(uint256).max);
+        USDXL.safeApprove(SWAP_ROUTER, type(uint256).max);
+
         for (uint256 i = 0; i < loopCount; i++) {
-            UBTC.safeApprove(HYPURRFI_POOL, supplyAmount);
             IHypurrFiPool(HYPURRFI_POOL).supply(UBTC, supplyAmount, address(this), 0);
             totalUBTCSupplied += supplyAmount;
 
-            uint256 borrowAmount = (supplyAmount * targetLTV) / 1e18;
+            (,, uint256 availableBorrowsBase,, uint256 currentLTV, uint256 healthFactor) =
+                IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
+
+            uint256 borrowAmount = (availableBorrowsBase * targetLTV) / 1e18;
+
+            if (currentLTV >= maxLTV || borrowAmount == 0 || healthFactor <= minHealthFactor) {
+                break;
+            }
 
             IHypurrFiPool(HYPURRFI_POOL).borrow(USDXL, borrowAmount, 2, 0, address(this));
             totalUSDXLBorrowed += borrowAmount;
 
-            // TODO: swap USDXL to USDT0 (in Balancer) for better uBTC price
-
             supplyAmount = _swapStablesToUBTC(borrowAmount);
 
-            // Safety check: ensure we're not exceeding max LTV
-            (,,,, uint256 currentLTV,) = IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
-            if (currentLTV >= maxLTV) {
+            if (supplyAmount == 0) {
                 break;
             }
         }
 
-        // supply remaining uBTC from last swap
+        // Supply remaining uBTC from last swap
         if (supplyAmount > 0) {
-            UBTC.safeApprove(HYPURRFI_POOL, supplyAmount);
             IHypurrFiPool(HYPURRFI_POOL).supply(UBTC, supplyAmount, address(this), 0);
             totalUBTCSupplied += supplyAmount;
         }
+
+        // Reset approvals to 0
+        UBTC.safeApprove(HYPURRFI_POOL, 0);
+        USDXL.safeApprove(SWAP_ROUTER, 0);
     }
 
     function _swapStablesToUBTC(uint256 stableAmount) internal virtual returns (uint256) {
-        USDXL.safeApprove(SWAP_ROUTER, stableAmount);
+        if (stableAmount == 0) return 0;
 
-        uint256 minOut = (stableAmount * 99) / 100;
+        uint256 ubtcBefore = ERC20(UBTC).balanceOf(address(this));
+
+        uint256 expectedOut = (stableAmount * 1e8) / (95000 * 1e8);
+
+        // 10% slippage tolerance
+        uint256 minOut = (expectedOut * 90) / 100;
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
             tokenIn: USDXL,
@@ -120,8 +133,14 @@ contract BtcGammaStrategy is ERC4626 {
             sqrtPriceLimitX96: 0
         });
 
-        uint256 amountOut = ISwapRouter(SWAP_ROUTER).exactInputSingle(params);
-        return amountOut;
+        ISwapRouter(SWAP_ROUTER).exactInputSingle(params);
+
+        uint256 ubtcAfter = ERC20(UBTC).balanceOf(address(this));
+        uint256 received = ubtcAfter - ubtcBefore;
+        require(received > 0, "Swap failed");
+        require(received >= minOut, "Swap slippage too high");
+
+        return received;
     }
 }
 
