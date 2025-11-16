@@ -120,8 +120,8 @@ contract BtcGammaStrategy is ERC4626 {
 
         uint256 expectedOut = (stableAmount * 1e8) / (95000 * 1e8);
 
-        // 10% slippage tolerance
-        uint256 minOut = (expectedOut * 90) / 100;
+        // 2% slippage tolerance
+        uint256 minOut = (expectedOut * 98) / 100;
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
             tokenIn: USDXL,
