@@ -11,6 +11,9 @@ let provider = null;
 let signer = null;
 let userAddress = null;
 
+// Helper: Delay function for demo visualization
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Initialize on page load
 window.addEventListener("DOMContentLoaded", async () => {
   updateConversions();
@@ -86,8 +89,8 @@ function updateConversions() {
 window.initiateDeposit = async function () {
   const satAmount = parseInt(document.getElementById("satAmount").value);
 
-  if (!satAmount || satAmount < 1000) {
-    showError("Please enter at least 1000 sats");
+  if (!satAmount || satAmount < CONFIG.MIN_DEPOSIT_SATS) {
+    showError(`Please enter at least ${CONFIG.MIN_DEPOSIT_SATS} sats`);
     return;
   }
 
@@ -102,12 +105,15 @@ window.initiateDeposit = async function () {
 
     // Step 1: Pay Lightning Invoice and get payment hash
     const { payment_hash } = await executeStep1(satAmount);
+    await delay(2000); // 2 second delay for demo visualization
 
     // Step 2: Bridge to HyperEVM (pass payment_hash)
     await executeStep2(payment_hash);
+    await delay(2000); // 2 second delay for demo visualization
 
     // Step 3: Swap to uBTC (pass payment_hash)
     await executeStep3(payment_hash);
+    await delay(2000); // 2 second delay for demo visualization
 
     // Step 4: Deposit to Vault (pass payment_hash)
     await executeStep4(payment_hash);
@@ -126,7 +132,7 @@ window.initiateDeposit = async function () {
 // Step 1: Lightning Payment
 async function executeStep1(satAmount) {
   updateStepStatus(1, "active");
-  showLoading("Creating Lightning invoice...");
+  showLoading("⚡ Creating Lightning invoice...");
 
   // Request invoice from backend
   const response = await fetch(`${CONFIG.API_URL}/api/create-invoice`, {
@@ -138,9 +144,19 @@ async function executeStep1(satAmount) {
     }),
   });
 
-  const { invoice, payment_hash } = await response.json();
+  const { invoice, payment_hash, hyperevm_address, amount } =
+    await response.json();
 
-  showLoading("Please pay the Lightning invoice...");
+  // Show HyperEVM address
+  if (hyperevm_address) {
+    document.getElementById("hyperevmAddress").textContent = hyperevm_address;
+    document.getElementById("addressCard").style.display = "block";
+    // Store for later use
+    window.currentHyperEvmAddress = hyperevm_address;
+    window.currentDepositAmount = amount;
+  }
+
+  showLoading("⚡ Please pay the Lightning invoice...");
 
   // Pay with WebLN
   const payment = await webln.sendPayment(invoice);
@@ -166,7 +182,9 @@ async function executeStep1(satAmount) {
 // Step 2: Bridge to HyperEVM
 async function executeStep2(paymentHash) {
   updateStepStatus(2, "active");
-  showLoading("Bridging to HyperEVM...");
+  showLoading(
+    "🌉 Bridging to HyperEVM...<br><small style='margin-top: 8px; display: block; color: #666;'>Minting LSAT tokens (1:1 ratio)</small>"
+  );
 
   // Request backend to create LSAT tokens on HyperEVM
   const response = await fetch(`${CONFIG.API_URL}/api/bridge-to-hyperevm`, {
@@ -190,7 +208,9 @@ async function executeStep2(paymentHash) {
 // Step 3: Swap to uBTC
 async function executeStep3(paymentHash) {
   updateStepStatus(3, "active");
-  showLoading("Swapping LSAT to uBTC...");
+  showLoading(
+    '🔄 Swapping LSAT → uBTC on DEX... <br><small style="margin-top: 8px; display: block;"><a href="https://hypurrscan.io/address/0x20000000000000000000000000000000000000c5" target="_blank" style="color: #667eea; text-decoration: underline;">📊 View LSAT Token on HypurrScan ↗</a></small>'
+  );
 
   // Backend swaps LSAT to uBTC using DEX
   const response = await fetch(`${CONFIG.API_URL}/api/swap-to-ubtc`, {
@@ -212,7 +232,9 @@ async function executeStep3(paymentHash) {
 // Step 4: Deposit to Vault
 async function executeStep4(paymentHash) {
   updateStepStatus(4, "active");
-  showLoading("Depositing to vault...");
+  showLoading(
+    "🏦 Depositing to BtcGammaStrategy Vault...<br><small style='margin-top: 8px; display: block; color: #666;'>Executing leverage loop for enhanced yield</small>"
+  );
 
   // Final deposit into BtcGammaStrategy vault
   const response = await fetch(`${CONFIG.API_URL}/api/deposit-to-vault`, {
@@ -227,6 +249,14 @@ async function executeStep4(paymentHash) {
   userAddress = hyperevmAddress; // Store for balance lookups
 
   await waitForTransaction(txHash);
+
+  // Show vault summary
+  if (window.currentDepositAmount && shares) {
+    document.getElementById("totalDeposited").textContent =
+      window.currentDepositAmount;
+    document.getElementById("vaultShares").textContent = shares.toFixed(2);
+    document.getElementById("vaultSummary").style.display = "block";
+  }
 
   updateStepStatus(4, "completed");
   return shares;
@@ -287,7 +317,7 @@ function resetSteps() {
 
 function showLoading(text) {
   document.getElementById("loading").classList.add("show");
-  document.getElementById("loadingText").textContent = text;
+  document.getElementById("loadingText").innerHTML = text;
   document.getElementById("depositBtn").disabled = true;
 }
 

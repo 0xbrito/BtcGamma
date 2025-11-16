@@ -221,6 +221,23 @@
         }
       }
 
+      .hypurrscan-btn {
+        display: inline-block;
+        padding: 10px 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        text-decoration: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+
+      .hypurrscan-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+
       .success-message {
         display: none;
         background: #d4edda;
@@ -293,8 +310,8 @@
             type="number"
             id="satAmount"
             placeholder="21000"
-            min="1000"
-            step="1000"
+            min="10"
+            step="10"
           />
           <div class="conversion-info">
             ≈ <span id="btcEquivalent">0.00000000</span> BTC ≈ $<span
@@ -333,21 +350,36 @@
           <div class="step-number">2</div>
           <div class="step-content">
             <div class="step-title">Bridge to HyperEVM</div>
-            <div class="step-description">Convert to LSAT tokens</div>
+            <div class="step-description">
+              Mint LSAT tokens (1:1 ratio)
+              <br /><small style="color: #999; font-size: 11px"
+                >0x2000...00c5</small
+              >
+            </div>
           </div>
         </div>
         <div class="step" id="step3">
           <div class="step-number">3</div>
           <div class="step-content">
-            <div class="step-title">Swap to uBTC</div>
-            <div class="step-description">Exchange LSAT for uBTC</div>
+            <div class="step-title">Swap LSAT → uBTC</div>
+            <div class="step-description">
+              Exchange on HyperEVM DEX
+              <br /><small style="color: #999; font-size: 11px"
+                >uBTC: 0x2000...00c6</small
+              >
+            </div>
           </div>
         </div>
         <div class="step" id="step4">
           <div class="step-number">4</div>
           <div class="step-content">
             <div class="step-title">Deposit to Vault</div>
-            <div class="step-description">Leverage and earn yield</div>
+            <div class="step-description">
+              Leverage and earn yield
+              <br /><small style="color: #999; font-size: 11px"
+                >BtcGammaStrategy</small
+              >
+            </div>
           </div>
         </div>
       </div>
@@ -365,6 +397,105 @@
       <div class="error-message" id="errorMessage">
         <strong>✗ Error</strong>
         <p id="errorText">Something went wrong. Please try again.</p>
+      </div>
+
+      <div
+        class="card"
+        id="addressCard"
+        style="
+          display: none;
+          margin-top: 20px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        "
+      >
+        <h3 style="margin: 0 0 15px 0; font-size: 16px">
+          Your HyperEVM Address
+        </h3>
+        <div
+          style="
+            background: rgba(255, 255, 255, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 13px;
+          "
+          id="hyperevmAddress"
+        >
+          -
+        </div>
+        <p style="margin: 10px 0 0 0; font-size: 12px; opacity: 0.9">
+          ⚡ All your Lightning deposits map to this address
+        </p>
+        <div style="margin-top: 12px; text-align: center">
+          <a
+            href="https://hypurrscan.io/address/0x20000000000000000000000000000000000000c5"
+            target="_blank"
+            style="
+              display: inline-block;
+              padding: 8px 16px;
+              background: rgba(255, 255, 255, 0.2);
+              color: white;
+              text-decoration: none;
+              border-radius: 6px;
+              font-size: 12px;
+              font-weight: 600;
+              transition: background 0.2s;
+              border: 1px solid rgba(255, 255, 255, 0.3);
+            "
+          >
+            📊 View LSAT Token ↗
+          </a>
+        </div>
+      </div>
+
+      <div
+        class="card"
+        id="vaultSummary"
+        style="display: none; margin-top: 20px"
+      >
+        <h3 style="margin: 0 0 15px 0; font-size: 18px">🏦 Vault Summary</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px">
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 8px">
+            <div style="color: #666; font-size: 12px; margin-bottom: 5px">
+              Deposited
+            </div>
+            <div style="font-size: 20px; font-weight: bold; color: #667eea">
+              <span id="totalDeposited">0</span> sats
+            </div>
+          </div>
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 8px">
+            <div style="color: #666; font-size: 12px; margin-bottom: 5px">
+              Vault Shares
+            </div>
+            <div style="font-size: 20px; font-weight: bold; color: #764ba2">
+              <span id="vaultShares">0</span>
+            </div>
+          </div>
+        </div>
+        <div
+          style="
+            margin-top: 15px;
+            padding: 12px;
+            background: #e8f5e9;
+            border-radius: 8px;
+            border-left: 4px solid #4caf50;
+          "
+        >
+          <div style="font-size: 13px; color: #2e7d32">
+            ✓ Your funds are earning leveraged yield on HyperEVM
+          </div>
+        </div>
+        <div style="margin-top: 12px; text-align: center">
+          <a
+            href="https://hypurrscan.io/address/0x20000000000000000000000000000000000000c6"
+            target="_blank"
+            class="hypurrscan-btn"
+          >
+            📊 View uBTC Token on HypurrScan ↗
+          </a>
+        </div>
       </div>
 
       <div class="info-grid" style="margin-top: 20px">

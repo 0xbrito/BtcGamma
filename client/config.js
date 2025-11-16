@@ -12,13 +12,19 @@ export const CONFIG = {
     import.meta.env.VITE_HYPEREVM_RPC || "https://rpc.hyperliquid.xyz",
   CHAIN_ID: 998, // HyperEVM chain ID
 
-  // Contract Addresses (update after deployment)
-  VAULT_ADDRESS: import.meta.env.VITE_VAULT_ADDRESS || "0x...",
-  LSAT_ADDRESS: import.meta.env.VITE_LSAT_ADDRESS || "0x...",
-  UBTC_ADDRESS: import.meta.env.VITE_UBTC_ADDRESS || "0x...",
+  // Contract Addresses - HyperEVM Mainnet
+  VAULT_ADDRESS:
+    import.meta.env.VITE_VAULT_ADDRESS ||
+    "0x0000000000000000000000000000000000000000", // BtcGammaStrategy Vault
+  LSAT_ADDRESS:
+    import.meta.env.VITE_LSAT_ADDRESS ||
+    "0x20000000000000000000000000000000000000c5", // Lightning SAT Token
+  UBTC_ADDRESS:
+    import.meta.env.VITE_UBTC_ADDRESS ||
+    "0x20000000000000000000000000000000000000c6", // HyperEVM uBTC
 
   // Limits
-  MIN_DEPOSIT_SATS: 1000,
+  MIN_DEPOSIT_SATS: 10, // Micro-sats enabled
   MAX_DEPOSIT_SATS: 10000000, // 0.1 BTC
 
   // Timeouts
