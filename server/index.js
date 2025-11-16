@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import crypto from "crypto";
 import { LightningService } from "./services/lightning.js";
 import { BridgeService } from "./services/bridge.js";
 import { VaultService } from "./services/vault.js";
@@ -31,11 +32,13 @@ const bridge = new BridgeService({
   lsatAddress: process.env.LSAT_TOKEN_ADDRESS,
   ubtcAddress: process.env.UBTC_TOKEN_ADDRESS,
   dexRouter: process.env.DEX_ROUTER_ADDRESS,
+  mockMode: process.env.MOCK_MODE === "true",
 });
 const vault = new VaultService({
   rpcUrl: process.env.HYPEREVM_RPC_URL,
   privateKey: process.env.HYPEREVM_PRIVATE_KEY,
   vaultAddress: process.env.VAULT_CONTRACT_ADDRESS,
+  mockMode: process.env.MOCK_MODE === "true",
 });
 
 // Initialize database
@@ -43,7 +46,76 @@ await db.init();
 
 // Health check
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: Date.now() });
+  res.json({
+    status: "ok",
+    timestamp: Date.now(),
+    mockMode: process.env.MOCK_MODE === "true",
+  });
+});
+
+// Demo endpoint - simulate full flow without WebLN
+app.post("/api/demo-deposit", async (req, res) => {
+  try {
+    const { amount } = req.body;
+
+    if (!amount || amount < 10) {
+      return res.status(400).json({ error: "Invalid amount, min 10 sats" });
+    }
+
+    // Step 1: Create invoice
+    const invoice = await lightning.createInvoice({
+      tokens: amount,
+      description: "Demo deposit",
+    });
+
+    const lightningIdentifier = await lightning.getLightningIdentifier();
+    const userWallet = await bridge.getOrCreateUserWallet(
+      lightningIdentifier,
+      db
+    );
+
+    await db.createDeposit({
+      paymentHash: invoice.id,
+      amount: amount,
+      hyperevmAddress: userWallet.address,
+      status: "paid", // Auto-mark as paid for demo
+    });
+
+    // Step 2: Bridge
+    const lsatAmount = amount * parseInt(process.env.SATS_TO_LSAT_RATIO || "1");
+    const bridgeTx = await bridge.mintLSAT(userWallet.address, lsatAmount);
+    await db.updateDeposit(invoice.id, { lsatAmount, status: "bridged" });
+
+    // Step 3: Swap
+    const swapTx = await bridge.swapLSATToUBTC(userWallet.address, lsatAmount);
+    const ubtcAmount = swapTx.amountOut || lsatAmount;
+    await db.updateDeposit(invoice.id, { ubtcAmount, status: "swapped" });
+
+    // Step 4: Vault deposit
+    const result = await vault.deposit(userWallet.address, ubtcAmount);
+    await db.updateDeposit(invoice.id, {
+      vault_shares: result.shares,
+      status: "completed",
+    });
+
+    res.json({
+      success: true,
+      payment_hash: invoice.id,
+      hyperevm_address: userWallet.address,
+      amount,
+      lsat_amount: lsatAmount,
+      ubtc_amount: ubtcAmount,
+      shares: result.shares,
+      txHashes: {
+        bridge: bridgeTx.hash,
+        swap: swapTx.hash,
+        vault: result.tx.hash,
+      },
+    });
+  } catch (error) {
+    console.error("Demo deposit error:", error);
+    res.status(500).json({ error: error.message, stack: error.stack });
+  }
 });
 
 // Create Lightning invoice
@@ -197,12 +269,14 @@ app.post("/api/bridge-to-hyperevm", async (req, res) => {
     // Mint LSAT tokens to user's address
     const tx = await bridge.mintLSAT(hyperevmAddress, lsatAmount);
 
-    // Wait for confirmation
-    await tx.wait();
+    // Wait for confirmation (skip for mock)
+    if (tx.wait) {
+      await tx.wait();
+    }
 
     // Update database with mapping
     await db.updateDeposit(payment_hash, {
-      hyperevmAddress: address,
+      hyperevmAddress: hyperevmAddress,
       lsatAmount,
       bridgeTxHash: tx.hash,
       status: "bridged",
@@ -210,12 +284,22 @@ app.post("/api/bridge-to-hyperevm", async (req, res) => {
 
     res.json({
       hyperevmAddress: hyperevmAddress,
-      lsatAmount,
+      lsatAmount: lsatAmount,
       txHash: tx.hash,
     });
   } catch (error) {
     console.error("Error bridging to HyperEVM:", error);
-    res.status(500).json({ error: error.message });
+    // Return partial success in mock mode
+    if (process.env.MOCK_MODE === "true") {
+      res.json({
+        hyperevmAddress: deposit.hyperevm_address,
+        lsatAmount: deposit.amount,
+        txHash: "0x" + crypto.randomBytes(32).toString("hex"),
+        warning: "Mock mode - simulated transaction",
+      });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -235,13 +319,18 @@ app.post("/api/swap-to-ubtc", async (req, res) => {
     }
 
     // Execute swap on DEX
-    const { ubtcAmount, tx } = await bridge.swapLSATToUBTC(
+    const swapResult = await bridge.swapLSATToUBTC(
       deposit.hyperevm_address,
       deposit.lsat_amount
     );
 
-    // Wait for confirmation
-    await tx.wait();
+    const tx = swapResult.tx || swapResult;
+    const ubtcAmount = swapResult.amountOut || deposit.lsat_amount;
+
+    // Wait for confirmation (skip for mock)
+    if (tx.wait) {
+      await tx.wait();
+    }
 
     // Update database
     await db.updateDeposit(payment_hash, {
@@ -256,7 +345,16 @@ app.post("/api/swap-to-ubtc", async (req, res) => {
     });
   } catch (error) {
     console.error("Error swapping to uBTC:", error);
-    res.status(500).json({ error: error.message });
+    // Return partial success in mock mode
+    if (process.env.MOCK_MODE === "true") {
+      res.json({
+        ubtcAmount: deposit.lsat_amount,
+        txHash: "0x" + crypto.randomBytes(32).toString("hex"),
+        warning: "Mock mode - simulated swap",
+      });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -276,13 +374,18 @@ app.post("/api/deposit-to-vault", async (req, res) => {
     }
 
     // Deposit to BtcGammaStrategy vault
-    const { shares, tx } = await vault.deposit(
+    const result = await vault.deposit(
       deposit.hyperevm_address,
       deposit.ubtc_amount
     );
 
-    // Wait for confirmation
-    await tx.wait();
+    const shares = result.shares;
+    const tx = result.tx;
+
+    // Wait for confirmation (skip for mock)
+    if (tx.wait) {
+      await tx.wait();
+    }
 
     // Update database
     await db.updateDeposit(payment_hash, {
@@ -299,7 +402,18 @@ app.post("/api/deposit-to-vault", async (req, res) => {
     });
   } catch (error) {
     console.error("Error depositing to vault:", error);
-    res.status(500).json({ error: error.message });
+    // Return partial success in mock mode
+    if (process.env.MOCK_MODE === "true") {
+      const shares = (deposit.ubtc_amount || 0) * 1.1;
+      res.json({
+        shares,
+        txHash: "0x" + crypto.randomBytes(32).toString("hex"),
+        hyperevmAddress: deposit.hyperevm_address,
+        warning: "Mock mode - simulated vault deposit",
+      });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -307,12 +421,22 @@ app.post("/api/deposit-to-vault", async (req, res) => {
 app.get("/api/tx-status/:txHash", async (req, res) => {
   try {
     const { txHash } = req.params;
-    const status = await bridge.getTransactionStatus(txHash);
 
+    // In mock mode, always return confirmed
+    if (process.env.MOCK_MODE === "true") {
+      return res.json({ status: "confirmed" });
+    }
+
+    const status = await bridge.getTransactionStatus(txHash);
     res.json({ status });
   } catch (error) {
     console.error("Error getting transaction status:", error);
-    res.status(500).json({ error: error.message });
+    // Default to confirmed in mock mode on error
+    if (process.env.MOCK_MODE === "true") {
+      res.json({ status: "confirmed", warning: "Mock mode" });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 

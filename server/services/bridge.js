@@ -23,33 +23,41 @@ const SWAP_ROUTER_ABI = [
 export class BridgeService {
   constructor(config) {
     this.config = config;
-    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
-    this.wallet = new ethers.Wallet(config.privateKey, this.provider);
+    this.mockMode = config.mockMode || false;
 
-    // Initialize contracts
-    this.lsatToken = new ethers.Contract(
-      config.lsatAddress,
-      ERC20_ABI,
-      this.wallet
-    );
+    if (this.mockMode) {
+      console.log("✓ Bridge service initialized (MOCK MODE)");
+      console.log(`  Mock wallet for demo`);
+      this.wallet = { address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" };
+    } else {
+      this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
+      this.wallet = new ethers.Wallet(config.privateKey, this.provider);
 
-    this.ubtcToken = new ethers.Contract(
-      config.ubtcAddress,
-      ERC20_ABI,
-      this.wallet
-    );
+      // Initialize contracts
+      this.lsatToken = new ethers.Contract(
+        config.lsatAddress,
+        ERC20_ABI,
+        this.wallet
+      );
 
-    this.dexRouter = new ethers.Contract(
-      config.dexRouter,
-      SWAP_ROUTER_ABI,
-      this.wallet
-    );
+      this.ubtcToken = new ethers.Contract(
+        config.ubtcAddress,
+        ERC20_ABI,
+        this.wallet
+      );
+
+      this.dexRouter = new ethers.Contract(
+        config.dexRouter,
+        SWAP_ROUTER_ABI,
+        this.wallet
+      );
+
+      console.log("✓ Bridge service initialized");
+      console.log(`  Wallet: ${this.wallet.address}`);
+    }
 
     // User wallet storage (in production, use proper key management)
     this.userWallets = new Map();
-
-    console.log("✓ Bridge service initialized");
-    console.log(`  Wallet: ${this.wallet.address}`);
   }
 
   async getOrCreateUserWallet(lightningIdentifier, db) {
@@ -123,6 +131,15 @@ export class BridgeService {
 
   async mintLSAT(toAddress, amount) {
     try {
+      if (this.mockMode) {
+        // Mock transaction for demo
+        console.log(`[MOCK] Minted ${amount} LSAT to ${toAddress}`);
+        return {
+          hash: "0x" + crypto.randomBytes(32).toString("hex"),
+          wait: async () => ({ status: 1 }),
+        };
+      }
+
       // Convert sats to proper LSAT amount (assuming 18 decimals)
       const amountWei = ethers.parseUnits(amount.toString(), 18);
 
@@ -145,6 +162,16 @@ export class BridgeService {
 
   async swapLSATToUBTC(fromAddress, lsatAmount) {
     try {
+      if (this.mockMode) {
+        // Mock swap for demo
+        console.log(`[MOCK] Swapped ${lsatAmount} LSAT to uBTC for ${fromAddress}`);
+        return {
+          hash: "0x" + crypto.randomBytes(32).toString("hex"),
+          wait: async () => ({ status: 1 }),
+          amountOut: lsatAmount, // 1:1 for demo
+        };
+      }
+
       // In production, this would:
       // 1. Use the user's wallet/signature
       // 2. Execute the swap through proper DEX

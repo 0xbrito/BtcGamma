@@ -205,4 +205,22 @@ export class LightningService {
       throw error;
     }
   }
+
+  async getLightningIdentifier() {
+    // Return a stable identifier for this Lightning wallet
+    // This will be used to map to a single HyperEVM address
+    
+    if (this.mode === "nwc" && this.nwc) {
+      // Use NWC connection URL as identifier
+      return this.config.nwcUrl;
+    }
+    
+    if (this.mode === "lnd" && this.lnd) {
+      // For LND, use node pubkey (would need to fetch)
+      return "lnd_node_" + this.config.socket;
+    }
+    
+    // For mock mode, return a consistent identifier
+    return "mock_lightning_wallet";
+  }
 }

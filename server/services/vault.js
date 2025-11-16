@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import crypto from "crypto";
 
 // ERC4626 Vault ABI (BtcGammaStrategy)
 const VAULT_ABI = [
@@ -24,21 +25,42 @@ const ERC20_ABI = [
 export class VaultService {
   constructor(config) {
     this.config = config;
-    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
-    this.wallet = new ethers.Wallet(config.privateKey, this.provider);
+    this.mockMode = config.mockMode || false;
 
-    this.vault = new ethers.Contract(
-      config.vaultAddress,
-      VAULT_ABI,
-      this.wallet
-    );
+    if (this.mockMode) {
+      console.log("✓ Vault service initialized (MOCK MODE)");
+      console.log(`  Mock vault for demo`);
+    } else {
+      this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
+      this.wallet = new ethers.Wallet(config.privateKey, this.provider);
 
-    console.log("✓ Vault service initialized");
-    console.log(`  Vault: ${config.vaultAddress}`);
+      this.vault = new ethers.Contract(
+        config.vaultAddress,
+        VAULT_ABI,
+        this.wallet
+      );
+
+      console.log("✓ Vault service initialized");
+      console.log(`  Vault: ${config.vaultAddress}`);
+    }
   }
 
   async deposit(userAddress, ubtcAmount) {
     try {
+      if (this.mockMode) {
+        // Mock vault deposit for demo
+        const shares = ubtcAmount * 1.1; // Simulate 1.1x shares
+        console.log(`[MOCK] Deposited ${ubtcAmount} uBTC to vault for ${userAddress}`);
+        console.log(`[MOCK] Received ${shares} shares`);
+        return {
+          shares: shares,
+          tx: {
+            hash: "0x" + crypto.randomBytes(32).toString("hex"),
+            wait: async () => ({ status: 1 }),
+          },
+        };
+      }
+
       // Get uBTC token address from vault
       const ubtcAddress = await this.vault.asset();
       const ubtc = new ethers.Contract(ubtcAddress, ERC20_ABI, this.wallet);
