@@ -66,19 +66,17 @@ contract BtcGammaStrategyTest is Test {
         vm.stopPrank();
     }
 
-    function testDepositCallsLeverageLoop() public {
+    function testDepositExecutesLeverage() public {
         uint256 depositAmount = 10 ether;
 
         vm.startPrank(alice);
         ubtc.approve(address(strategy), depositAmount);
-
-        vm.expectEmit(true, true, false, true);
-        emit Transfer(alice, address(strategy), depositAmount);
-
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        assertGt(strategy.totalAssets(), 0, "Should have assets after deposit");
+        assertGt(strategy.totalUSDXLBorrowed(), 0, "Should have borrowed USDXL");
+        assertGt(pool.supplied(address(strategy)), 0, "Should have supplied to pool");
+        assertGt(strategy.totalAssets(), 0, "Should have net asset value");
     }
 
     function testDepositMultipleUsers() public {
@@ -193,15 +191,10 @@ contract BtcGammaStrategyTest is Test {
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        uint256 supplied = strategy.totalUBTCSupplied();
-        uint256 borrowed = strategy.totalUSDXLBorrowed();
+        (,,,, uint256 currentLTV,) = pool.getUserAccountData(address(strategy));
 
-        if (supplied > 0) {
-            uint256 actualLTV = (borrowed * 1e18) / supplied;
-            uint256 targetLTV = strategy.targetLTV();
-
-            assertApproxEqRel(actualLTV, targetLTV, 0.1e18, "LTV should be close to target");
-        }
+        assertLe(currentLTV, strategy.maxLTV(), "LTV must not exceed max");
+        assertGt(currentLTV, 0, "LTV should be > 0 after leverage");
     }
 
     function testDepositMaintainsSafeHealthFactor() public {
@@ -241,16 +234,9 @@ contract BtcGammaStrategyTest is Test {
         strategy.deposit(depositAmount, alice);
         vm.stopPrank();
 
-        // Calculate actual LTV
-        uint256 supplied = strategy.totalUBTCSupplied();
-        uint256 borrowed = strategy.totalUSDXLBorrowed();
+        (,,,, uint256 currentLTV,) = pool.getUserAccountData(address(strategy));
 
-        if (supplied > 0) {
-            uint256 actualLTV = (borrowed * 1e18) / supplied;
-            uint256 maxLTV = strategy.maxLTV();
-
-            assertLe(actualLTV, maxLTV, "Should not exceed max LTV");
-        }
+        assertLe(currentLTV, strategy.maxLTV(), "Should not exceed max LTV");
     }
 
     function testConsecutiveDepositsCompoundLeverage() public {

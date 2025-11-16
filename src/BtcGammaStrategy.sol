@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {ERC4626, ERC20} from "@solady-tokens/ERC4626.sol";
 import {SafeTransferLib} from "@solady-utils/SafeTransferLib.sol";
-import {IHypurrFiPool, ReserveData} from "./interfaces/IHypurrFiPool.sol";
+import {IHypurrFiPool} from "./interfaces/IHypurrFiPool.sol";
 import {ISwapRouter} from "./interfaces/ISwapRouter.sol";
 
 contract BtcGammaStrategy is ERC4626 {
@@ -48,14 +48,12 @@ contract BtcGammaStrategy is ERC4626 {
     }
 
     function totalAssets() public view override returns (uint256) {
-        ReserveData memory reserveData = IHypurrFiPool(HYPURRFI_POOL).getReserveData(UBTC);
-        address hyUBTC = reserveData.aTokenAddress;
+        // Get actual collateral and debt values from HypurrFi (oracle-priced in base currency)
+        (uint256 totalCollateralBase, uint256 totalDebtBase,,,,) =
+            IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
 
-        uint256 suppliedBalance = ERC20(hyUBTC).balanceOf(address(this));
-
-        return suppliedBalance;
-
-        // TODO: implement Oracle? The `suppliedBalance` alone is not enough to determine the total assets value.
+        // Net asset value = collateral - debt (both in same base currency units)
+        return totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -88,10 +86,13 @@ contract BtcGammaStrategy is ERC4626 {
             IHypurrFiPool(HYPURRFI_POOL).borrow(USDXL, borrowAmount, 2, 0, address(this));
             totalUSDXLBorrowed += borrowAmount;
 
+            // TODO: swap USDXL to USDT0 (in Balancer) for better uBTC price
+
             supplyAmount = _swapStablesToUBTC(borrowAmount);
 
             // Safety check: ensure we're not exceeding max LTV
-            if (_getCurrentLTV() >= maxLTV) {
+            (,,,, uint256 currentLTV,) = IHypurrFiPool(HYPURRFI_POOL).getUserAccountData(address(this));
+            if (currentLTV >= maxLTV) {
                 break;
             }
         }
@@ -121,11 +122,6 @@ contract BtcGammaStrategy is ERC4626 {
 
         uint256 amountOut = ISwapRouter(SWAP_ROUTER).exactInputSingle(params);
         return amountOut;
-    }
-
-    function _getCurrentLTV() internal view returns (uint256) {
-        if (totalUBTCSupplied == 0) return 0;
-        return (totalUSDXLBorrowed * 1e18) / totalUBTCSupplied;
     }
 }
 

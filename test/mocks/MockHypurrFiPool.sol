@@ -16,7 +16,7 @@ contract MockHypurrFiPool is IHypurrFiPool {
         ERC20(asset).transferFrom(msg.sender, address(this), amount);
         supplied[onBehalfOf] += amount;
         collateralEnabled[onBehalfOf] = true;
-        
+
         // Mint hyTokens to user (1:1)
         address hyToken = hyTokens[asset];
         if (hyToken != address(0)) {
@@ -60,7 +60,9 @@ contract MockHypurrFiPool is IHypurrFiPool {
         totalDebtBase = borrowed[user];
         availableBorrowsBase = totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
         currentLiquidationThreshold = 8000; // 80%
-        ltv = 7500; // 75%
+
+        ltv = totalCollateralBase > 0 ? (totalDebtBase * 10000) / totalCollateralBase : 0;
+
         healthFactor = totalDebtBase > 0 ? (totalCollateralBase * 1e18) / totalDebtBase : type(uint256).max;
     }
 
@@ -69,7 +71,7 @@ contract MockHypurrFiPool is IHypurrFiPool {
         data.aTokenAddress = hyTokens[asset];
         return data;
     }
-    
+
     function setHyToken(address asset, address hyToken) external {
         hyTokens[asset] = hyToken;
     }
